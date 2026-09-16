@@ -22,16 +22,12 @@ st.set_page_config(
 # HUGGING FACE SETTINGS
 # ============================================================
 
-# CHANGE THIS:
-# Put your actual Hugging Face username here.
 HF_USERNAME = "Faizan-Haider"
 
-# CHANGE THIS:
-# Put your actual Hugging Face dataset/repository name here.
 HF_REPO = "Movie-Recommendation"
 
 HF_BASE_URL = (
-    f"https://huggingface.co/datasets/"
+    f"https://huggingface.co/"
     f"{HF_USERNAME}/{HF_REPO}/resolve/main"
 )
 
