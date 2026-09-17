@@ -1,0 +1,10 @@
+streamlit
+groq
+faiss-cpu
+sentence-transformers
+pypdf
+python-docx
+requests
+beautifulsoup4
+lxml
+numpy
