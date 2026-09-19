@@ -3,14 +3,14 @@ import os
 import re
 import io
 import zipfile
-import tempfile
 import requests
-import numpy as np
 import faiss
+import html
 
 from pathlib import Path
 from urllib.parse import urlparse
 
+import numpy as np
 from pypdf import PdfReader
 from docx import Document
 from bs4 import BeautifulSoup
@@ -29,73 +29,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-
-# ============================================================
-# CUSTOM CSS
-# ============================================================
-
-st.markdown(
-    """
-    <style>
-
-    .main {
-        padding-top: 1rem;
-    }
-
-    .title {
-        font-size: 42px;
-        font-weight: 700;
-        margin-bottom: 5px;
-    }
-
-    .subtitle {
-        font-size: 18px;
-        color: #666;
-        margin-bottom: 30px;
-    }
-
-    .source-card {
-        padding: 18px;
-        border-radius: 12px;
-        border: 1px solid #ddd;
-        margin-bottom: 15px;
-        background-color: rgba(128, 128, 128, 0.05);
-    }
-
-    .metric-card {
-        padding: 15px;
-        border-radius: 12px;
-        border: 1px solid #ddd;
-        text-align: center;
-    }
-
-    .small-text {
-        font-size: 13px;
-        color: #777;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-
-# ============================================================
-# CONSTANTS
-# ============================================================
-
-GROQ_MODEL = "openai/gpt-oss-120b"
-
-EMBEDDING_MODEL_NAME = (
-    "sentence-transformers/all-MiniLM-L6-v2"
-)
-
-TOP_K = 5
-
-CHUNK_SIZE = 1000
-
-CHUNK_OVERLAP = 150
 
 
 # ============================================================
@@ -123,6 +56,446 @@ if "last_question" not in st.session_state:
 if "detailed_explanation" not in st.session_state:
     st.session_state.detailed_explanation = None
 
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
+
+
+# ============================================================
+# THEME COLORS
+# ============================================================
+
+if st.session_state.dark_mode:
+
+    BG_COLOR = "#0E1117"
+    CARD_COLOR = "#161B22"
+    TEXT_COLOR = "#F0F6FC"
+    SECONDARY_TEXT = "#A8B3C1"
+    BORDER_COLOR = "#30363D"
+    INPUT_BG = "#21262D"
+    SIDEBAR_BG = "#0D1117"
+
+else:
+
+    BG_COLOR = "#F5F7FB"
+    CARD_COLOR = "#FFFFFF"
+    TEXT_COLOR = "#172033"
+    SECONDARY_TEXT = "#667085"
+    BORDER_COLOR = "#E4E7EC"
+    INPUT_BG = "#FFFFFF"
+    SIDEBAR_BG = "#FFFFFF"
+
+
+# ============================================================
+# CUSTOM CSS
+# ============================================================
+
+st.markdown(
+    f"""
+    <style>
+
+    /* =====================================================
+       GLOBAL
+       ===================================================== */
+
+    .stApp {{
+        background:
+            linear-gradient(
+                135deg,
+                {BG_COLOR} 0%,
+                {BG_COLOR} 65%,
+                rgba(99, 102, 241, 0.05) 100%
+            );
+
+        color: {TEXT_COLOR};
+    }}
+
+    .main {{
+        padding-top: 1rem;
+    }}
+
+    .block-container {{
+        max-width: 1400px;
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+    }}
+
+
+    /* =====================================================
+       HERO HEADER
+       ===================================================== */
+
+    .hero {{
+        padding: 32px;
+        border-radius: 24px;
+        margin-bottom: 25px;
+
+        background:
+            linear-gradient(
+                135deg,
+                rgba(99,102,241,0.15),
+                rgba(14,165,233,0.10)
+            );
+
+        border: 1px solid {BORDER_COLOR};
+
+        box-shadow:
+            0 15px 40px rgba(0,0,0,0.08);
+    }}
+
+    .hero-title {{
+        font-size: 46px;
+        font-weight: 800;
+        line-height: 1.1;
+        margin-bottom: 10px;
+        color: {TEXT_COLOR};
+    }}
+
+    .hero-subtitle {{
+        font-size: 18px;
+        color: {SECONDARY_TEXT};
+        line-height: 1.6;
+        max-width: 900px;
+    }}
+
+    .hero-badge {{
+        display: inline-block;
+        padding: 6px 14px;
+        border-radius: 50px;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 15px;
+
+        background: rgba(99,102,241,0.12);
+        color: #6366F1;
+
+        border: 1px solid rgba(99,102,241,0.25);
+    }}
+
+
+    /* =====================================================
+       SIDEBAR
+       ===================================================== */
+
+    section[data-testid="stSidebar"] {{
+        background: {SIDEBAR_BG};
+        border-right: 1px solid {BORDER_COLOR};
+    }}
+
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3,
+    section[data-testid="stSidebar"] p {{
+        color: {TEXT_COLOR};
+    }}
+
+
+    /* =====================================================
+       GENERAL CARD
+       ===================================================== */
+
+    .ui-card {{
+        background: {CARD_COLOR};
+
+        border: 1px solid {BORDER_COLOR};
+
+        border-radius: 18px;
+
+        padding: 22px;
+
+        margin: 10px 0;
+
+        box-shadow:
+            0 8px 25px rgba(0,0,0,0.05);
+
+        transition:
+            transform 0.2s ease,
+            box-shadow 0.2s ease;
+    }}
+
+    .ui-card:hover {{
+        transform: translateY(-2px);
+
+        box-shadow:
+            0 12px 30px rgba(0,0,0,0.10);
+    }}
+
+
+    /* =====================================================
+       METRIC CARDS
+       ===================================================== */
+
+    div[data-testid="stMetric"] {{
+        background: {CARD_COLOR};
+
+        border: 1px solid {BORDER_COLOR};
+
+        border-radius: 16px;
+
+        padding: 18px;
+
+        box-shadow:
+            0 6px 20px rgba(0,0,0,0.05);
+
+        transition: 0.2s ease;
+    }}
+
+    div[data-testid="stMetric"]:hover {{
+        transform: translateY(-3px);
+
+        box-shadow:
+            0 10px 25px rgba(0,0,0,0.10);
+    }}
+
+    div[data-testid="stMetricLabel"] {{
+        color: {SECONDARY_TEXT};
+    }}
+
+    div[data-testid="stMetricValue"] {{
+        color: {TEXT_COLOR};
+        font-weight: 700;
+    }}
+
+
+    /* =====================================================
+       BUTTONS
+       ===================================================== */
+
+    .stButton > button {{
+        border-radius: 12px;
+
+        min-height: 45px;
+
+        font-weight: 600;
+
+        border: 1px solid {BORDER_COLOR};
+
+        transition:
+            transform 0.15s ease,
+            box-shadow 0.15s ease;
+    }}
+
+    .stButton > button:hover {{
+        transform: translateY(-2px);
+
+        box-shadow:
+            0 8px 20px rgba(99,102,241,0.18);
+    }}
+
+
+    /* =====================================================
+       INPUTS
+       ===================================================== */
+
+    .stTextInput input,
+    .stTextArea textarea {{
+        background: {INPUT_BG} !important;
+
+        color: {TEXT_COLOR} !important;
+
+        border: 1px solid {BORDER_COLOR} !important;
+
+        border-radius: 12px !important;
+    }}
+
+    .stTextInput input:focus,
+    .stTextArea textarea:focus {{
+        border-color: #6366F1 !important;
+
+        box-shadow:
+            0 0 0 2px rgba(99,102,241,0.15) !important;
+    }}
+
+
+    /* =====================================================
+       FILE UPLOADER
+       ===================================================== */
+
+    section[data-testid="stFileUploaderDropzone"] {{
+        background: {CARD_COLOR};
+
+        border: 2px dashed {BORDER_COLOR};
+
+        border-radius: 18px;
+
+        padding: 20px;
+    }}
+
+
+    /* =====================================================
+       SOURCE CARDS
+       ===================================================== */
+
+    .source-card {{
+        padding: 20px;
+
+        border-radius: 16px;
+
+        border: 1px solid {BORDER_COLOR};
+
+        margin-bottom: 15px;
+
+        background: {CARD_COLOR};
+
+        box-shadow:
+            0 5px 18px rgba(0,0,0,0.04);
+    }}
+
+    .source-number {{
+        font-size: 14px;
+
+        font-weight: 700;
+
+        color: #6366F1;
+
+        margin-bottom: 8px;
+    }}
+
+
+    /* =====================================================
+       STATUS BADGES
+       ===================================================== */
+
+    .status-success {{
+        display: inline-block;
+
+        padding: 6px 12px;
+
+        border-radius: 30px;
+
+        background: rgba(34,197,94,0.12);
+
+        color: #16A34A;
+
+        font-size: 13px;
+
+        font-weight: 600;
+    }}
+
+    .status-ai {{
+        display: inline-block;
+
+        padding: 6px 12px;
+
+        border-radius: 30px;
+
+        background: rgba(99,102,241,0.12);
+
+        color: #6366F1;
+
+        font-size: 13px;
+
+        font-weight: 600;
+    }}
+
+
+    /* =====================================================
+       ANSWER BOX
+       ===================================================== */
+
+    .answer-box {{
+        background: {CARD_COLOR};
+
+        border: 1px solid {BORDER_COLOR};
+
+        border-left: 5px solid #6366F1;
+
+        border-radius: 16px;
+
+        padding: 25px;
+
+        margin: 15px 0;
+
+        box-shadow:
+            0 8px 25px rgba(0,0,0,0.05);
+    }}
+
+
+    /* =====================================================
+       PIPELINE
+       ===================================================== */
+
+    .pipeline {{
+        padding: 18px;
+
+        background: {CARD_COLOR};
+
+        border: 1px solid {BORDER_COLOR};
+
+        border-radius: 16px;
+
+        margin-top: 15px;
+    }}
+
+    .pipeline-step {{
+        padding: 8px 0;
+
+        color: {SECONDARY_TEXT};
+
+        font-size: 14px;
+    }}
+
+
+    /* =====================================================
+       FOOTER
+       ===================================================== */
+
+    .footer {{
+        text-align: center;
+
+        padding: 25px;
+
+        color: {SECONDARY_TEXT};
+
+        font-size: 13px;
+
+        border-top: 1px solid {BORDER_COLOR};
+
+        margin-top: 40px;
+    }}
+
+
+    /* =====================================================
+       MOBILE
+       ===================================================== */
+
+    @media (max-width: 768px) {{
+
+        .hero-title {{
+            font-size: 32px;
+        }}
+
+        .hero {{
+            padding: 22px;
+        }}
+
+        .hero-subtitle {{
+            font-size: 15px;
+        }}
+
+    }}
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# CONSTANTS
+# ============================================================
+
+GROQ_MODEL = "openai/gpt-oss-120b"
+
+EMBEDDING_MODEL_NAME = (
+    "sentence-transformers/all-MiniLM-L6-v2"
+)
+
+TOP_K = 5
+
+CHUNK_SIZE = 1000
+
+CHUNK_OVERLAP = 150
+
 
 # ============================================================
 # GROQ CLIENT
@@ -134,15 +507,19 @@ def get_groq_client():
 
     # Streamlit Cloud Secrets
     try:
+
         api_key = st.secrets.get(
             "GROQ_API_KEY",
             ""
         )
+
     except Exception:
+
         api_key = ""
 
     # Environment variable fallback
     if not api_key:
+
         api_key = os.getenv(
             "GROQ_API_KEY",
             ""
@@ -178,6 +555,7 @@ def load_embedding_model():
 def clean_text(text):
 
     if not text:
+
         return ""
 
     text = text.replace(
@@ -198,7 +576,7 @@ def clean_text(text):
     )
 
     text = re.sub(
-        r" *\n *",
+        r" \*\n \*",
         "\n",
         text
     )
@@ -341,13 +719,13 @@ def extract_text_from_txt(file_bytes):
 
 def extract_text_from_html(file_bytes):
 
-    html = file_bytes.decode(
+    html_content = file_bytes.decode(
         "utf-8",
         errors="ignore"
     )
 
     soup = BeautifulSoup(
-        html,
+        html_content,
         "lxml"
     )
 
@@ -1152,12 +1530,26 @@ IMPORTANT:
 # SOURCE DISPLAY
 # ============================================================
 
-def display_sources(
-    results
-):
+def display_sources(results):
 
     st.markdown(
-        "## 📚 Retrieved Sources"
+        """
+        <div style="margin-top:20px;">
+
+            <span class="status-success">
+                🔎 RETRIEVAL EVIDENCE
+            </span>
+
+            <h2>📚 Retrieved Sources</h2>
+
+            <p style="opacity:0.7;">
+                The following paper sections were selected
+                by semantic similarity.
+            </p>
+
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     for i, result in enumerate(
@@ -1177,30 +1569,91 @@ def display_sources(
 
             page = "N/A"
 
+        if score >= 0.70:
+
+            similarity_label = "🟢 Highly Relevant"
+
+        elif score >= 0.45:
+
+            similarity_label = "🟡 Relevant"
+
+        else:
+
+            similarity_label = "🟠 Related"
+
         with st.expander(
-            f"Source {i} — "
-            f"Page {page} — "
-            f"Similarity {score:.3f}"
+            f"📄 Source {i}  •  "
+            f"Page {page}  •  "
+            f"{similarity_label}  •  "
+            f"{score:.3f}"
         ):
 
+            col1, col2 = st.columns(2)
+
+            with col1:
+
+                st.markdown(
+                    f"""
+                    <div class="source-card">
+
+                        <div class="source-number">
+                            SOURCE {i}
+                        </div>
+
+                        <b>📄 Document</b>
+
+                        <p>
+                            {html.escape(
+                                str(result["document_name"])
+                            )}
+                        </p>
+
+                        <b>📖 Page</b>
+
+                        <p>
+                            {page}
+                        </p>
+
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+            with col2:
+
+                st.markdown(
+                    f"""
+                    <div class="source-card">
+
+                        <div class="source-number">
+                            RELEVANCE
+                        </div>
+
+                        <b>🔎 Similarity Score</b>
+
+                        <h2>
+                            {score:.4f}
+                        </h2>
+
+                        <p>
+                            {similarity_label}
+                        </p>
+
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
             st.markdown(
-                f"""
-                **📄 Document:**  
-                {result["document_name"]}
+                "**🔗 Source:**"
+            )
 
-                **📖 Page:**  
-                {page}
-
-                **🔎 Similarity Score:**  
-                {score:.4f}
-
-                **🔗 Source:**  
-                {result["source"]}
-                """
+            st.caption(
+                result["source"]
             )
 
             st.markdown(
-                "**Retrieved Content:**"
+                "### 📝 Retrieved Content"
             )
 
             st.write(
@@ -1213,15 +1666,49 @@ def display_sources(
 # ============================================================
 
 st.markdown(
-    '<div class="title">📚 Research Paper RAG</div>',
-    unsafe_allow_html=True
-)
-
-st.markdown(
     """
-    <div class="subtitle">
-    Upload a research paper or provide a document link,
-    then ask questions and get evidence-based answers.
+    <div class="hero">
+
+        <div class="hero-badge">
+            🤖 AI-Powered Research Assistant
+        </div>
+
+        <div class="hero-title">
+            📚 Research Paper RAG
+        </div>
+
+        <div class="hero-subtitle">
+            Upload a research paper, connect a document,
+            and ask questions using an intelligent
+            Retrieval-Augmented Generation system.
+            Get answers backed by the actual content
+            of your research paper.
+        </div>
+
+        <br>
+
+        <span class="status-ai">
+            🧠 FAISS Retrieval
+        </span>
+
+        &nbsp;
+
+        <span class="status-ai">
+            🔎 Semantic Search
+        </span>
+
+        &nbsp;
+
+        <span class="status-ai">
+            🤖 Groq AI
+        </span>
+
+        &nbsp;
+
+        <span class="status-success">
+            ✓ Evidence Based
+        </span>
+
     </div>
     """,
     unsafe_allow_html=True
@@ -1236,6 +1723,37 @@ with st.sidebar:
 
     st.header("⚙️ Research Paper")
 
+    # ========================================================
+    # THEME CONTROL
+    # ========================================================
+
+    st.markdown("### 🎨 Appearance")
+
+    theme_label = (
+        "☀️ Light Mode"
+        if st.session_state.dark_mode
+        else "🌙 Dark Mode"
+    )
+
+    if st.button(
+        theme_label,
+        use_container_width=True
+    ):
+
+        st.session_state.dark_mode = (
+            not st.session_state.dark_mode
+        )
+
+        st.rerun()
+
+    st.divider()
+
+    # ========================================================
+    # DOCUMENT SOURCE
+    # ========================================================
+
+    st.markdown("### 📂 Document Source")
+
     input_method = st.radio(
         "Choose document source:",
         [
@@ -1247,43 +1765,126 @@ with st.sidebar:
 
     st.divider()
 
+    # ========================================================
+    # SUPPORTED FORMATS
+    # ========================================================
+
     st.markdown(
         """
-        ### Supported Formats
+        <div class="pipeline">
 
-        📄 PDF  
-        📝 DOCX  
-        📃 TXT  
-        🌐 HTML
+            <b>📄 Supported Formats</b>
 
-        ### RAG Pipeline
+            <div class="pipeline-step">
+                📕 PDF
+            </div>
 
-        Document  
-        ↓  
-        Text Extraction  
-        ↓  
-        Chunking  
-        ↓  
-        Embeddings  
-        ↓  
-        FAISS  
-        ↓  
-        Similarity Search  
-        ↓  
-        Groq LLM
-        """
+            <div class="pipeline-step">
+                📝 DOCX
+            </div>
+
+            <div class="pipeline-step">
+                📃 TXT
+            </div>
+
+            <div class="pipeline-step">
+                🌐 HTML
+            </div>
+
+            <br>
+
+            <b>⚡ RAG Pipeline</b>
+
+            <div class="pipeline-step">
+                📄 Document
+            </div>
+
+            <div class="pipeline-step">
+                ↓ Text Extraction
+            </div>
+
+            <div class="pipeline-step">
+                ↓ 🧹 Cleaning
+            </div>
+
+            <div class="pipeline-step">
+                ↓ 🧩 Chunking
+            </div>
+
+            <div class="pipeline-step">
+                ↓ 🧠 Embeddings
+            </div>
+
+            <div class="pipeline-step">
+                ↓ 🔎 FAISS Search
+            </div>
+
+            <div class="pipeline-step">
+                ↓ 🤖 Groq LLM
+            </div>
+
+            <div class="pipeline-step">
+                ↓ 💬 Answer
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     st.divider()
 
     st.caption(
-        "Embeddings are generated locally using "
+        "🧠 Embeddings are generated locally using "
         "Sentence Transformers."
     )
 
+    st.caption(
+        "🔎 FAISS performs semantic similarity search."
+    )
+
+    st.caption(
+        "🤖 Groq generates the final response."
+    )
+
+    # ========================================================
+    # CLEAR SESSION
+    # ========================================================
+
+    st.divider()
+
+    st.markdown("### 🧹 Session")
+
+    if st.button(
+        "🗑️ Clear Current Research Paper",
+        use_container_width=True
+    ):
+
+        st.session_state.paper_data = None
+
+        st.session_state.document_name = None
+
+        st.session_state.source_type = None
+
+        st.session_state.chat_history = []
+
+        st.session_state.last_results = None
+
+        st.session_state.last_question = None
+
+        st.session_state.detailed_explanation = None
+
+        if "pending_document" in st.session_state:
+
+            del st.session_state[
+                "pending_document"
+            ]
+
+        st.rerun()
+
 
 # ============================================================
-# DOCUMENT INPUT
+# DOCUMENT INPUT VARIABLES
 # ============================================================
 
 file_bytes = None
@@ -1291,14 +1892,30 @@ filename = None
 source = None
 
 
-# ------------------------------------------------------------
+# ============================================================
 # FILE UPLOAD
-# ------------------------------------------------------------
+# ============================================================
 
 if input_method == "📁 Upload File":
 
+    st.markdown(
+        """
+        <div class="ui-card">
+
+            <h2>📁 Upload Research Paper</h2>
+
+            <p style="opacity:0.7;">
+                Upload a PDF, DOCX, TXT, or HTML research
+                document to begin.
+            </p>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     uploaded_file = st.file_uploader(
-        "Upload your research paper",
+        "Choose your research paper",
         type=[
             "pdf",
             "docx",
@@ -1317,16 +1934,36 @@ if input_method == "📁 Upload File":
 
         source = "Local File Upload"
 
+        st.success(
+            f"✓ {filename} selected successfully."
+        )
 
-# ------------------------------------------------------------
+
+# ============================================================
 # GOOGLE DRIVE
-# ------------------------------------------------------------
+# ============================================================
 
 elif input_method == "🔗 Google Drive":
 
+    st.markdown(
+        """
+        <div class="ui-card">
+
+            <h2>🔗 Google Drive</h2>
+
+            <p style="opacity:0.7;">
+                Paste a publicly accessible Google Drive
+                file link.
+            </p>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     st.info(
-        "Make sure your Google Drive file is "
-        "accessible using the shared link."
+        "Make sure your Google Drive file is accessible "
+        "using the shared link."
     )
 
     drive_url = st.text_input(
@@ -1381,7 +2018,7 @@ elif input_method == "🔗 Google Drive":
                 }
 
                 st.success(
-                    "Google Drive file downloaded successfully."
+                    "✓ Google Drive file downloaded successfully."
                 )
 
             except Exception as e:
@@ -1391,11 +2028,27 @@ elif input_method == "🔗 Google Drive":
                 )
 
 
-# ------------------------------------------------------------
+# ============================================================
 # DIRECT URL
-# ------------------------------------------------------------
+# ============================================================
 
 elif input_method == "🌐 Direct URL":
+
+    st.markdown(
+        """
+        <div class="ui-card">
+
+            <h2>🌐 Direct Document URL</h2>
+
+            <p style="opacity:0.7;">
+                Paste a direct URL pointing to a research
+                document.
+            </p>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     direct_url = st.text_input(
         "Paste direct document URL",
@@ -1449,7 +2102,7 @@ elif input_method == "🌐 Direct URL":
                 }
 
                 st.success(
-                    "Document downloaded successfully."
+                    "✓ Document downloaded successfully."
                 )
 
             except Exception as e:
@@ -1490,12 +2143,25 @@ if file_bytes is not None:
 
     st.divider()
 
-    st.subheader(
-        f"📄 {filename}"
-    )
+    st.markdown(
+        f"""
+        <div class="ui-card">
 
-    st.write(
-        f"Source: {source}"
+            <span class="status-success">
+                📄 DOCUMENT READY
+            </span>
+
+            <h2>
+                {html.escape(str(filename))}
+            </h2>
+
+            <p style="opacity:0.7;">
+                Source: {html.escape(str(source))}
+            </p>
+
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     if st.button(
@@ -1554,6 +2220,8 @@ if file_bytes is not None:
                 "Research paper processed successfully! 🎉"
             )
 
+            st.rerun()
+
         except Exception as e:
 
             st.error(
@@ -1572,7 +2240,20 @@ if paper_data is not None:
     st.divider()
 
     st.markdown(
-        "## 📊 Research Paper Information"
+        """
+        <div style="margin-bottom:15px;">
+
+            <span class="status-success">
+                ✓ DOCUMENT INDEXED
+            </span>
+
+            <h2>
+                📊 Research Paper Information
+            </h2>
+
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     col1, col2, col3, col4 = st.columns(4)
@@ -1587,7 +2268,7 @@ if paper_data is not None:
     with col2:
 
         st.metric(
-            "📑 Pages/Sections",
+            "📑 Pages / Sections",
             len(paper_data["pages"])
         )
 
@@ -1605,6 +2286,31 @@ if paper_data is not None:
             paper_data["index"].ntotal
         )
 
+    st.markdown(
+        """
+        <div style="
+            margin-top:10px;
+            padding:12px 16px;
+            border-radius:12px;
+            background:rgba(34,197,94,0.08);
+            border:1px solid rgba(34,197,94,0.18);
+        ">
+
+            <span class="status-success">
+                ✓ Research paper successfully indexed
+            </span>
+
+            &nbsp;
+
+            <span style="font-size:13px;">
+                Your document is ready for semantic search.
+            </span>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 
     # ========================================================
     # QUESTION SECTION
@@ -1613,7 +2319,20 @@ if paper_data is not None:
     st.divider()
 
     st.markdown(
-        "## 💬 Ask Your Research Question"
+        """
+        <div class="ui-card">
+
+            <h2>💬 Ask Your Research Question</h2>
+
+            <p style="opacity:0.7;">
+                Ask anything about the uploaded research paper.
+                The system will retrieve the most relevant
+                sections before generating the answer.
+            </p>
+
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     question = st.text_area(
@@ -1647,7 +2366,7 @@ if paper_data is not None:
             try:
 
                 with st.spinner(
-                    "Searching the research paper and generating answer..."
+                    "🔎 Searching the research paper and generating answer..."
                 ):
 
                     results = search_faiss(
@@ -1700,7 +2419,20 @@ if paper_data is not None:
         st.divider()
 
         st.markdown(
-            "## 🤖 Answer"
+            """
+            <div style="margin-top:20px;">
+
+                <span class="status-ai">
+                    🤖 AI GENERATED ANSWER
+                </span>
+
+                <h2>
+                    Research Paper Answer
+                </h2>
+
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
         # Find latest answer
@@ -1712,18 +2444,43 @@ if paper_data is not None:
             )
 
             st.markdown(
+                '<div class="answer-box">',
+                unsafe_allow_html=True
+            )
+
+            st.markdown(
                 latest_answer
+            )
+
+            st.markdown(
+                "</div>",
+                unsafe_allow_html=True
             )
 
 
         # ====================================================
-        # DETAILED EXPLANATION BUTTON
+        # DETAILED EXPLANATION
         # ====================================================
 
         st.divider()
 
         st.markdown(
-            "### 🧠 Want to understand it better?"
+            """
+            <div class="ui-card">
+
+                <h3>
+                    🧠 Want to understand it better?
+                </h3>
+
+                <p style="opacity:0.7;">
+                    Get a deeper beginner-friendly explanation
+                    of the answer, important terminology,
+                    examples, and why the concept matters.
+                </p>
+
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
         if st.button(
@@ -1734,7 +2491,7 @@ if paper_data is not None:
             try:
 
                 with st.spinner(
-                    "Generating detailed explanation..."
+                    "🧠 Generating detailed explanation..."
                 ):
 
                     detailed = (
@@ -1765,11 +2522,34 @@ if paper_data is not None:
         ):
 
             st.markdown(
-                "## 📖 Detailed Explanation"
+                """
+                <div style="margin-top:25px;">
+
+                    <span class="status-ai">
+                        🧠 DETAILED LEARNING MODE
+                    </span>
+
+                    <h2>
+                        📖 Detailed Explanation
+                    </h2>
+
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            st.markdown(
+                '<div class="answer-box">',
+                unsafe_allow_html=True
             )
 
             st.markdown(
                 st.session_state.detailed_explanation
+            )
+
+            st.markdown(
+                "</div>",
+                unsafe_allow_html=True
             )
 
 
@@ -1790,6 +2570,24 @@ if paper_data is not None:
 
     st.divider()
 
+    st.markdown(
+        """
+        <div class="ui-card">
+
+            <h3>
+                📄 Document Preview
+            </h3>
+
+            <p style="opacity:0.7;">
+                Preview the text extracted from the
+                first few pages or sections.
+            </p>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     with st.expander(
         "📄 Preview Extracted Paper Text"
     ):
@@ -1807,7 +2605,7 @@ if paper_data is not None:
             if page_number:
 
                 st.markdown(
-                    f"### Page {page_number}"
+                    f"### 📖 Page {page_number}"
                 )
 
             st.write(
@@ -1818,14 +2616,98 @@ if paper_data is not None:
 
 
 # ============================================================
+# EMPTY STATE
+# ============================================================
+
+else:
+
+    st.markdown(
+        """
+        <div class="ui-card" style="
+            text-align:center;
+            padding:45px 25px;
+            margin-top:30px;
+        ">
+
+            <div style="font-size:55px;">
+                📚
+            </div>
+
+            <h2>
+                Your Research Assistant is Ready
+            </h2>
+
+            <p style="
+                max-width:700px;
+                margin:auto;
+                opacity:0.7;
+                line-height:1.7;
+            ">
+                Upload a research paper or provide a document
+                link from the sidebar. After processing,
+                you can ask questions and receive
+                evidence-based answers from your document.
+            </p>
+
+            <br>
+
+            <span class="status-ai">
+                📄 Upload
+            </span>
+
+            &nbsp;
+
+            <span class="status-ai">
+                🧠 Process
+            </span>
+
+            &nbsp;
+
+            <span class="status-ai">
+                🔎 Search
+            </span>
+
+            &nbsp;
+
+            <span class="status-ai">
+                💬 Ask
+            </span>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# ============================================================
 # FOOTER
 # ============================================================
 
-st.divider()
+st.markdown(
+    """
+    <div class="footer">
 
-st.caption(
-    """
-    📚 Research Paper RAG | 
-    Sentence Transformers + FAISS + Groq
-    """
+        📚 <b>Research Paper RAG</b>
+
+        <br><br>
+
+        Built with
+        🧠 Sentence Transformers
+        &nbsp;•&nbsp;
+        🔎 FAISS
+        &nbsp;•&nbsp;
+        🤖 Groq
+        &nbsp;•&nbsp;
+        ⚡ Streamlit
+
+        <br><br>
+
+        <span style="opacity:0.7;">
+            Retrieval-Augmented Generation for
+            evidence-based research assistance.
+        </span>
+
+    </div>
+    """,
+    unsafe_allow_html=True
 )
