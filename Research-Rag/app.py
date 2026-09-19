@@ -2221,34 +2221,31 @@ if paper_data is not None:
 
 else:
 
+    # NOTE: This HTML is intentionally written with NO leading
+    # indentation and NO blank lines. Streamlit's markdown parser
+    # treats 4+ leading spaces (or a blank line inside an HTML block)
+    # as a code block, which is what caused the raw HTML to show up.
+
+    welcome_html = (
+        '<div class="welcome-card">'
+        '<div class="welcome-icon">📚</div>'
+        '<div class="welcome-title">Your Research Assistant is Ready</div>'
+        '<div class="welcome-text">'
+        'Upload a research paper or provide a document '
+        'link using the sidebar. After processing, '
+        'you can ask questions and receive '
+        'evidence-based answers from your document.'
+        '</div>'
+        '<br>'
+        '<span class="status-pill">📄 Upload</span>'
+        '<span class="status-pill">🧠 Process</span>'
+        '<span class="status-pill">🔎 Search</span>'
+        '<span class="status-pill">💬 Ask</span>'
+        '</div>'
+    )
+
     st.markdown(
-        """
-        <div class="welcome-card">
-
-            <div class="welcome-icon">
-                📚
-            </div>
-
-            <div class="welcome-title">
-                Your Research Assistant is Ready
-            </div>
-
-            <div class="welcome-text">
-                Upload a research paper or provide a document
-                link using the sidebar. After processing,
-                you can ask questions and receive
-                evidence-based answers from your document.
-            </div>
-
-            <br>
-
-            <span class="status-pill">📄 Upload</span>
-            <span class="status-pill">🧠 Process</span>
-            <span class="status-pill">🔎 Search</span>
-            <span class="status-pill">💬 Ask</span>
-
-        </div>
-        """,
+        welcome_html,
         unsafe_allow_html=True
     )
 
